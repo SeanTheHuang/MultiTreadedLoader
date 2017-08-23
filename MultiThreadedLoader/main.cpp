@@ -54,7 +54,7 @@ bool ChooseImageFilesToLoad(HWND _hwnd)
 	ofn.lStructSize = sizeof(OPENFILENAME);
 	ofn.hwndOwner = _hwnd;
 	ofn.lpstrFile = wsFileNames;
-	ofn.nMaxFile = MAX_FILES_TO_OPEN * 20 + MAX_PATH;  //The size, in charactesr of the buffer pointed to by lpstrFile. The buffer must be atleast 256(MAX_PATH) characters long; otherwise GetOpenFileName and 
+	ofn.nMaxFile = MAX_FILES_TO_OPEN * MAX_CHARACTERS_IN_FILENAME + MAX_PATH;  //The size, in charactesr of the buffer pointed to by lpstrFile. The buffer must be atleast 256(MAX_PATH) characters long; otherwise GetOpenFileName and 
 													   //GetSaveFileName functions return False
 													   // Set lpstrFile[0] to '\0' so that GetOpenFileName does not 
 													   // use the contents of wsFileNames to initialize itself.
@@ -124,7 +124,7 @@ bool ChooseSoundFilesToLoad(HWND _hwnd)
 	ofn.lStructSize = sizeof(OPENFILENAME);
 	ofn.hwndOwner = _hwnd;
 	ofn.lpstrFile = wsFileNames;
-	ofn.nMaxFile = MAX_FILES_TO_OPEN * 20 + MAX_PATH;  //The size, in charactesr of the buffer pointed to by lpstrFile. The buffer must be atleast 256(MAX_PATH) characters long; otherwise GetOpenFileName and 
+	ofn.nMaxFile = MAX_FILES_TO_OPEN * MAX_CHARACTERS_IN_FILENAME + MAX_PATH;  //The size, in charactesr of the buffer pointed to by lpstrFile. The buffer must be atleast 256(MAX_PATH) characters long; otherwise GetOpenFileName and 
 													   //GetSaveFileName functions return False
 													   // Set lpstrFile[0] to '\0' so that GetOpenFileName does not 
 													   // use the contents of wsFileNames to initialize itself.
@@ -163,11 +163,11 @@ bool ChooseSoundFilesToLoad(HWND _hwnd)
 
 }
 
-void LoadAndPlaySound(std::wstring filePath)
+void LoadAndPlaySound(std::wstring _filePath)
 {
-	mciSendString((L"open " + filePath + L" type wavaudio").c_str(), NULL, 0, 0);
-	mciSendString((L"play " + filePath).c_str(), NULL, 0, 0);
-	mciSendString((L"close " + filePath).c_str(), NULL, 0, 0);
+	mciSendString((L"open " + _filePath + L" type waveaudio").c_str(), NULL, 0, 0);
+	mciSendString((L"play " + _filePath + L" wait").c_str(), NULL, 0, 0);
+	mciSendString((L"close " + _filePath).c_str(), NULL, 0, 0);
 }
 
 void LoadImages(ImageInfo *_imageInfo)
@@ -285,14 +285,15 @@ LRESULT CALLBACK WindowProc(HWND _hwnd, UINT _uiMsg, WPARAM _wparam, LPARAM _lpa
 		{
 			if (ChooseSoundFilesToLoad(_hwnd))
 			{
-				g_vecThreads.clear();
-				while (!g_vecSoundFileNames.empty())
+				g_vecThreads.clear(); 
+				for (size_t i = 0; i < g_vecSoundFileNames.size(); i++)	//Play all sounds
 				{
-					g_vecThreads.push_back(std::thread(LoadAndPlaySound, g_vecSoundFileNames.front()));
-					g_vecSoundFileNames.erase(g_vecSoundFileNames.begin());
+					g_vecThreads.push_back(std::thread(LoadAndPlaySound, g_vecSoundFileNames[i]));
 				}
 
-				std::for_each(g_vecThreads.begin(), g_vecThreads.end(), std::mem_fn(&std::thread::join));
+
+				std::for_each(g_vecThreads.begin(), g_vecThreads.end(), std::mem_fn(&std::thread::join)); //Clean up after
+				g_vecSoundFileNames.clear();
 			}
 			else
 			{
