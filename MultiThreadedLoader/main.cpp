@@ -7,6 +7,7 @@
 #include "BackBuffer.h"
 #include <math.h>
 #include "resource.h"
+#include <algorithm>
 
 #define WINDOW_CLASS_NAME L"MultiThreaded Loader Tool"
 const unsigned int _kuiWINDOWWIDTH = 800;
@@ -17,9 +18,7 @@ const unsigned int _kuiWINDOWHEIGHT = 800;
 //Global Variables
 std::vector<std::wstring> g_vecImageFileNames;
 std::vector<std::wstring> g_vecSoundFileNames;
-
-int g_iNumImagesLoaded;
-int g_iNumSoundsLoaded;
+std::vector<std::thread> g_vecThreads;
 
 CBackBuffer g_backBuffer;
 
@@ -164,23 +163,28 @@ bool ChooseSoundFilesToLoad(HWND _hwnd)
 
 }
 
+void LoadAndPlaySound(std::wstring filePath)
+{
+	mciSendString((L"open " + filePath + L" type wavaudio").c_str(), NULL, 0, 0);
+	mciSendString((L"play " + filePath).c_str(), NULL, 0, 0);
+	mciSendString((L"close " + filePath).c_str(), NULL, 0, 0);
+}
+
 void LoadImages(ImageInfo *_imageInfo)
 {
 	BITMAP bmp;
 	HBITMAP hbmp = (HBITMAP)LoadImage(g_hInstance, _imageInfo->filePath.c_str(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
 	GetObject(hbmp, sizeof(BITMAP), &bmp);
 
+	std::lock_guard<std::mutex>lockBlit(g_blitImageMutex);
+
 	HDC bmHDC = CreateCompatibleDC(g_backBuffer.GetBFDC());
 	HBITMAP oldBM = static_cast<HBITMAP>(SelectObject(bmHDC, hbmp));
-	
-	std::lock_guard<std::mutex>lockBlit(g_blitImageMutex);
 
 	StretchBlt(g_backBuffer.GetBFDC(), _imageInfo->_iXOffset, _imageInfo->_iYOffset, _imageInfo->_iWidth, _imageInfo->_iHeight, bmHDC, 0, 0, bmp.bmWidth, bmp.bmHeight, SRCCOPY);
 
 	SelectObject(bmHDC, oldBM);
 	DeleteDC(bmHDC);
-
-	g_iNumImagesLoaded++;
 
 	delete _imageInfo;
 }
@@ -228,8 +232,8 @@ LRESULT CALLBACK WindowProc(HWND _hwnd, UINT _uiMsg, WPARAM _wparam, LPARAM _lpa
 		{
 			if (ChooseImageFilesToLoad(_hwnd))
 			{
-				g_iNumImagesLoaded = 0;
 				g_backBuffer.Clear();
+				g_vecThreads.clear();
 
 				//Got images, calculate width/height of images
 				int iMaxImages = g_vecImageFileNames.size();
@@ -244,16 +248,14 @@ LRESULT CALLBACK WindowProc(HWND _hwnd, UINT _uiMsg, WPARAM _wparam, LPARAM _lpa
 				while (!g_vecImageFileNames.empty())	//Assign image drawing to threads
 				{
 					ImageInfo* imageInfo = new ImageInfo();	//Give info on where to draw
-					imageInfo->filePath = g_vecImageFileNames.back();
+					imageInfo->filePath = g_vecImageFileNames.front();
 					imageInfo->_iHeight = iImageHeight;
 					imageInfo->_iWidth = iImageWidth;
 					imageInfo->_iXOffset = iStepX * iImageWidth;
 					imageInfo->_iYOffset = iStepY * iImageHeight;
 
-					std::thread tempThreadName(LoadImages, imageInfo);
-					tempThreadName.join(); 
-
-					g_vecImageFileNames.pop_back();
+					g_vecThreads.push_back(std::thread (LoadImages, imageInfo));
+					g_vecImageFileNames.erase(g_vecImageFileNames.begin());
 
 					iStepX++;
 
@@ -265,10 +267,7 @@ LRESULT CALLBACK WindowProc(HWND _hwnd, UINT _uiMsg, WPARAM _wparam, LPARAM _lpa
 				}
 
 
-				while (g_iNumImagesLoaded < iMaxImages)	//Wait for all images to load
-				{
-					continue;
-				}
+				std::for_each(g_vecThreads.begin(), g_vecThreads.end(), std::mem_fn(&std::thread::join));
 				//Images loaded, now show on screen
 				g_backBuffer.Present();
 
@@ -286,7 +285,14 @@ LRESULT CALLBACK WindowProc(HWND _hwnd, UINT _uiMsg, WPARAM _wparam, LPARAM _lpa
 		{
 			if (ChooseSoundFilesToLoad(_hwnd))
 			{
+				g_vecThreads.clear();
+				while (!g_vecSoundFileNames.empty())
+				{
+					g_vecThreads.push_back(std::thread(LoadAndPlaySound, g_vecSoundFileNames.front()));
+					g_vecSoundFileNames.erase(g_vecSoundFileNames.begin());
+				}
 
+				std::for_each(g_vecThreads.begin(), g_vecThreads.end(), std::mem_fn(&std::thread::join));
 			}
 			else
 			{
